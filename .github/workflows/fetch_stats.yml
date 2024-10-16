@@ -1,22 +1,68 @@
-name: Example Workflow
+name: Fetch Team GitHub Stats
 
 on:
   workflow_dispatch:
+    inputs:
+      team:
+        description: "Team"
+        required: true
+      from_date:
+        description: "From date (yyyy-mm-dd)"
+        required: true
+      to_date:
+        description: "To date (yyyy-mm-dd)"
+        required: true
 
 jobs:
-  example_job:
+  fetch_stats:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 2: Run a simple command (e.g., printing Hello World)
-      - name: Print Hello World
-        run: echo "Hello, World!"
-
-      # Step 3: Run additional commands or scripts
-      - name: Run a script
+      # Step 2: Read the members from the file and store in a variable
+      - name: Read members from members.txt
+        id: read_members
         run: |
-          echo "This is an example script step"
-          echo "You can add your commands here"
+          # Read the file and store it in a variable
+          members=$(cat my_team/members.txt | xargs)
+          echo "Members: $members"
+
+          # Set members as an environment variable for the next steps
+          echo "MEMBERS_LIST=$members" >> $GITHUB_ENV
+
+      # Step 3: Run the GraphQL query for each members
+      - name: Fetch GraphQL data for each members
+        run: |
+          # Create the output folder if it doesn't exist
+          mkdir -p output
+
+          # Initialize an empty array to hold all members outputs
+          echo "[]" > output/all_members_data.json
+
+          # Iterate over the list of members stored in the environment variable
+          for member in $MEMBERS_LIST; do
+            echo "Processing members: $members"
+            
+            # Run the GraphQL query for each MEMBERS_LIST
+            response=$(curl -s -X POST \
+              -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              --data "{\"query\": \"query { user(login: \\\"$member\\\") { contributionsCollection { totalCommitContributions } } }\"}" \
+              https://api.github.com/graphql)
+
+            # Append the response to the aggregated JSON file
+            jq ". + [{\"member\": \"$member\", \"data\": $response}]" output/all_members_data.json > tmp.$$.json && mv tmp.$$.json output/all_members_data.json
+          done
+
+      # Step 4: Commit the aggregated JSON file back to the repository
+      - name: Commit JSON data to repository
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Add and commit the JSON file containing all user data
+          git add output/all_members_data.json
+          git commit -m "Add aggregated GraphQL data for all members"
+          git push
