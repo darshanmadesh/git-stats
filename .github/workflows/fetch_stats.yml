@@ -21,7 +21,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 2: Read the members from the file and store in a variable
       - name: Read members from members.txt
         id: read_members
         run: |
@@ -32,37 +31,65 @@ jobs:
           # Set members as an environment variable for the next steps
           echo "MEMBERS_LIST=$members" >> $GITHUB_ENV
 
-      # Step 3: Run the GraphQL query for each members
-      - name: Fetch GraphQL data for each members
-        run: |
-          # Create the output folder if it doesn't exist
-          mkdir -p output
+      - name: Query API
+        id: query_api
+        uses: octokit/graphql-action@v2.3.2
+        with:
+          query: |
+            query user(login: "darshanmadesh") {
+                contributionsCollection(from: "2024-10-01T00:00:00Z", to: "2024-10-15T00:00:00Z") {
+                    totalCommitContributions
+                    totalPullRequestContributions
+                    totalPullRequestReviewContributions
+                    totalRepositoriesWithContributedCommits
+                    totalRepositoriesWithContributedPullRequests
+                    totalRepositoriesWithContributedPullRequestReviews
+                    startedAt
+                    endedAt
+                    commitContributionsByRepository { repository { name } contributions { totalCount } }
+                    pullRequestContributionsByRepository { repository { name } contributions { totalCount } }
+                    pullRequestReviewContributionsByRepository { repository { name } contributions { totalCount } }
+                }
+            }
+          variables: |
+            owner: ${{ github.event.repository.owner.name }}
+            repo: ${{ github.event.repository.name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          # Initialize an empty array to hold all members outputs
-          echo "[]" > output/all_members_data.json
+      - run: "echo 'latest release: ${{ steps.query_api.outputs.data }}'"
 
-          # Iterate over the list of members stored in the environment variable
-          for member in $MEMBERS_LIST; do
-            echo "Processing members: $members"
-            
-            # Run the GraphQL query for each MEMBERS_LIST
-            response=$(curl -s -X POST \
-              -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              --data "{\"query\": \"query { user(login: \\\"$member\\\") { contributionsCollection { totalCommitContributions } } }\"}" \
-              https://api.github.com/graphql)
+    #   # Step 3: Run the GraphQL query for each members
+    #   - name: Fetch GraphQL data for each members
+    #     run: |
+    #       # Create the output folder if it doesn't exist
+    #       mkdir -p output
 
-            # Append the response to the aggregated JSON file
-            jq ". + [{\"member\": \"$member\", \"data\": $response}]" output/all_members_data.json > tmp.$$.json && mv tmp.$$.json output/all_members_data.json
-          done
+    #       # Initialize an empty array to hold all members outputs
+    #       echo "[]" > output/all_members_data.json
 
-      # Step 4: Commit the aggregated JSON file back to the repository
-      - name: Commit JSON data to repository
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+    #       # Iterate over the list of members stored in the environment variable
+    #       for member in $MEMBERS_LIST; do
+    #         echo "Processing members: $members"
 
-          # Add and commit the JSON file containing all user data
-          git add output/all_members_data.json
-          git commit -m "Add aggregated GraphQL data for all members"
-          git push
+    #         # Run the GraphQL query for each MEMBERS_LIST
+    #         response=$(curl -s -X POST \
+    #           -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
+    #           -H "Content-Type: application/json" \
+    #           --data "{\"query\": \"query { user(login: \\\"$member\\\") { contributionsCollection { totalCommitContributions } } }\"}" \
+    #           https://api.github.com/graphql)
+
+    #         # Append the response to the aggregated JSON file
+    #         jq ". + [{\"member\": \"$member\", \"data\": $response}]" output/all_members_data.json > tmp.$$.json && mv tmp.$$.json output/all_members_data.json
+    #       done
+
+    #   # Step 4: Commit the aggregated JSON file back to the repository
+    #   - name: Commit JSON data to repository
+    #     run: |
+    #       git config --global user.name "github-actions[bot]"
+    #       git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+    #       # Add and commit the JSON file containing all user data
+    #       git add output/all_members_data.json
+    #       git commit -m "Add aggregated GraphQL data for all members"
+    #       git push
